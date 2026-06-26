@@ -1,0 +1,14 @@
+# Auto-populated cache of vendored binaries + cfg files
+.ch347_runtime/
+
+# Editors / OS
+*.swp
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
