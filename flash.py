@@ -10,8 +10,9 @@ newest match, confirms once, and flashes it through a bscan_spi proxy.
 
 Vendored binaries are auto-downloaded on first run from official
 upstream sources into `.ch347_runtime/` next to the script:
-    - openocd.exe + DLLs from WCHSoftGroup/ch347 (WCH-patched build)
-    - xilinx-xc7.cfg + jtagspi.cfg from openocd-org/openocd
+    - openocd.exe + DLLs + xilinx-xc7.cfg + jtagspi.cfg from
+      WCHSoftGroup/ch347 (WCH-patched build; the .cfg files match its
+      command syntax — openocd upstream's don't)
     - bscan_spi_xc7a<part>.bit from quartiq/bscan_spi_bitstreams
 
 Subsequent runs use the cache. Delete `.ch347_runtime/` to force fresh
@@ -35,16 +36,21 @@ from pathlib import Path
 CACHE_DIR_NAME = ".ch347_runtime"
 USER_AGENT = "ch347-xc7-tools/flash.py"
 
-WCH_BASE = "https://raw.githubusercontent.com/WCHSoftGroup/ch347/main/OpenOCD_CH347/bin"
-OOCD_BASE = "https://raw.githubusercontent.com/openocd-org/openocd/master/tcl"
+WCH_REPO = "https://raw.githubusercontent.com/WCHSoftGroup/ch347/main/OpenOCD_CH347"
+WCH_BASE = f"{WCH_REPO}/bin"
+# The .cfg files ship with WCH's openocd build and match its (older) command
+# syntax — `-chain-position`, `-no_jstart`, etc. Do NOT source them from
+# openocd-org/openocd master: master has no xilinx-xc7.cfg at all, and its
+# jtagspi.cfg uses newer `-tap` syntax this build rejects.
+WCH_CPLD = f"{WCH_REPO}/scripts/cpld"
 BSCAN_BASE = "https://raw.githubusercontent.com/quartiq/bscan_spi_bitstreams/master"
 
 CORE_DOWNLOADS = [
-    (f"{WCH_BASE}/openocd.exe",          "openocd.exe"),
-    (f"{WCH_BASE}/libusb-1.0.dll",       "libusb-1.0.dll"),
-    (f"{WCH_BASE}/libhidapi-0.dll",      "libhidapi-0.dll"),
-    (f"{OOCD_BASE}/cpld/xilinx-xc7.cfg", "xilinx-xc7.cfg"),
-    (f"{OOCD_BASE}/cpld/jtagspi.cfg",    "jtagspi.cfg"),
+    (f"{WCH_BASE}/openocd.exe",        "openocd.exe"),
+    (f"{WCH_BASE}/libusb-1.0.dll",     "libusb-1.0.dll"),
+    (f"{WCH_BASE}/libhidapi-0.dll",    "libhidapi-0.dll"),
+    (f"{WCH_CPLD}/xilinx-xc7.cfg",     "xilinx-xc7.cfg"),
+    (f"{WCH_CPLD}/jtagspi.cfg",        "jtagspi.cfg"),
 ]
 
 # IDCODE & 0x0FFFFFFF clears the 4-bit silicon revision in the top
