@@ -18,6 +18,15 @@ upstream sources into `.ch347_runtime/` next to the script:
 Subsequent runs use the cache. Delete `.ch347_runtime/` to force fresh
 downloads.
 
+One-time prerequisite (not auto-installable): the WCH openocd build loads
+WCH's proprietary CH347DLL.DLL at runtime and needs WCH's CH347 kernel
+driver bound to the dongle (CH347 mode 1 / vid 1a86 pid 55dd has no in-box
+Windows driver). Install both from WCH's CH347 package:
+    https://www.wch-ic.com/products/CH347.html
+Alternatively, drop a matching 32-bit CH347DLL.DLL into `.ch347_runtime/`
+(openocd finds it next to openocd.exe), but the kernel driver still has to
+be installed. flash.py prints these steps if the DLL or device is missing.
+
 Usage:
     python flash.py                              # search dir next to script
     python flash.py --search-dir builds/         # also look in builds/
@@ -44,6 +53,11 @@ WCH_BASE = f"{WCH_REPO}/bin"
 # jtagspi.cfg uses newer `-tap` syntax this build rejects.
 WCH_CPLD = f"{WCH_REPO}/scripts/cpld"
 BSCAN_BASE = "https://raw.githubusercontent.com/quartiq/bscan_spi_bitstreams/master"
+
+# WCH's CH347 driver + CH347DLL.DLL package. The WCH openocd build loads
+# CH347DLL.DLL at runtime (see _diagnose_probe_failure); it's proprietary
+# and not redistributed here.
+DRIVER_URL = "https://www.wch-ic.com/products/CH347.html"
 
 CORE_DOWNLOADS = [
     (f"{WCH_BASE}/openocd.exe",        "openocd.exe"),
@@ -155,12 +169,42 @@ def _probe_idcode():
     )
     m = IDCODE_RE.search(proc.stdout)
     if not m:
-        raise RuntimeError(
-            "could not read JTAG IDCODE — check CH347 driver, cable, and that "
-            "the JTAG header is connected and the card is powered.\n\n"
-            "openocd output:\n" + proc.stdout
-        )
+        raise RuntimeError(_diagnose_probe_failure(proc.stdout))
     return int(m.group(1), 16)
+
+
+def _diagnose_probe_failure(output):
+    """Turn an openocd failure into an actionable message. The WCH openocd
+    build is hardwired on Windows to load WCH's proprietary CH347DLL.DLL
+    (CH347DLLA64.DLL on 64-bit builds); it has no libusb backend on
+    Windows. That DLL, plus WCH's CH347 kernel driver, are one-time
+    prerequisites we can't bundle — the DLL isn't redistributed in the
+    WCH repo and a kernel driver can't be a dropped file."""
+    if "Not find CH347DLL" in output:
+        detail = (
+            "openocd could not load CH347DLL.DLL — WCH's user-mode CH347\n"
+            "library. It is not bundled (proprietary; not in the WCH repo).\n"
+            "Install it one of two ways:\n"
+            f"  * install WCH's CH347 package (driver + DLL) from\n"
+            f"    {DRIVER_URL} , or\n"
+            "  * drop CH347DLL.DLL (32-bit, to match the bundled 32-bit\n"
+            f"    openocd.exe) into {CACHE_DIR}\n"
+            "You also need WCH's CH347 kernel driver installed for the DLL\n"
+            "to reach the device — CH347 mode 1 has no in-box Windows driver."
+        )
+    elif "CH347 open error" in output:
+        detail = (
+            "CH347DLL.DLL loaded but the device could not be opened. Check:\n"
+            f"  * WCH's CH347 kernel driver is installed ({DRIVER_URL})\n"
+            "  * the dongle is plugged in and not open in another program\n"
+            "  * the CH347 is in mode 1 (JTAG) — not mode 0/2/3"
+        )
+    else:
+        detail = (
+            "could not read JTAG IDCODE — check the cable and that the JTAG\n"
+            "header is connected and the card is powered."
+        )
+    return detail + "\n\nopenocd output:\n" + output
 
 
 def _chip_family(idcode):

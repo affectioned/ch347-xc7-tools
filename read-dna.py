@@ -15,11 +15,11 @@ per-die calibration data lookup, RMA tracking.
 On first run this downloads OpenOCD + a few cfg files from official
 upstream sources into `.ch347_runtime/` next to the script:
 
-    - openocd.exe + libusb-1.0.dll + libhidapi-0.dll
+    - openocd.exe + libusb-1.0.dll + libhidapi-0.dll +
+      xilinx-xc7.cfg + jtagspi.cfg + xilinx-dna.cfg
       from WCHSoftGroup/ch347 (WCH ships their own openocd build with
-      CH347 driver patches applied)
-    - xilinx-xc7.cfg, jtagspi.cfg, xilinx-dna.cfg
-      from openocd-org/openocd (mainline canonical scripts)
+      CH347 driver patches; the .cfg files match its command syntax —
+      openocd upstream's don't, and it has no xilinx-xc7.cfg at all)
 
 Subsequent runs use the cache. To force a fresh download, delete
 `.ch347_runtime/`.
@@ -29,8 +29,10 @@ Requirements:
       Porting to Linux/macOS is a matter of swapping the WCH base URL
       for a system OpenOCD install — PRs welcome.
     - CH347 dongle wired to the FPGA JTAG header (TCK/TMS/TDI/TDO/GND).
-    - WCH CH347 driver installed:
-        https://www.wch-ic.com/downloads/CH347PAR_ZIP.html
+    - WCH CH347 driver + CH347DLL.DLL installed (the WCH openocd build
+      loads CH347DLL.DLL at runtime; CH347 mode 1 / vid 1a86 pid 55dd
+      has no in-box Windows driver):
+        https://www.wch-ic.com/products/CH347.html
       Device Manager should then show a CH347-JTAG / CH347 interface.
 
 Usage:
@@ -47,16 +49,26 @@ from pathlib import Path
 CACHE_DIR_NAME = ".ch347_runtime"
 USER_AGENT = "ch347-xc7-tools/read-dna.py"
 
-WCH_BASE = "https://raw.githubusercontent.com/WCHSoftGroup/ch347/main/OpenOCD_CH347/bin"
-OOCD_BASE = "https://raw.githubusercontent.com/openocd-org/openocd/master/tcl"
+WCH_REPO = "https://raw.githubusercontent.com/WCHSoftGroup/ch347/main/OpenOCD_CH347"
+WCH_BASE = f"{WCH_REPO}/bin"
+# .cfg files ship with WCH's openocd build and match its (older) command
+# syntax — `-chain-position`, `-no_jstart`, etc. Do NOT source them from
+# openocd-org/openocd master: master has no xilinx-xc7.cfg at all, and its
+# jtagspi.cfg uses newer `-tap` syntax this build rejects.
+WCH_CPLD = f"{WCH_REPO}/scripts/cpld"
+WCH_FPGA = f"{WCH_REPO}/scripts/fpga"
+
+# WCH's CH347 driver + CH347DLL.DLL package. The WCH openocd build loads
+# CH347DLL.DLL at runtime; it's proprietary and not redistributed here.
+DRIVER_URL = "https://www.wch-ic.com/products/CH347.html"
 
 DOWNLOADS = [
-    (f"{WCH_BASE}/openocd.exe",          "openocd.exe"),
-    (f"{WCH_BASE}/libusb-1.0.dll",       "libusb-1.0.dll"),
-    (f"{WCH_BASE}/libhidapi-0.dll",      "libhidapi-0.dll"),
-    (f"{OOCD_BASE}/cpld/xilinx-xc7.cfg", "xilinx-xc7.cfg"),
-    (f"{OOCD_BASE}/cpld/jtagspi.cfg",    "jtagspi.cfg"),
-    (f"{OOCD_BASE}/fpga/xilinx-dna.cfg", "xilinx-dna.cfg"),
+    (f"{WCH_BASE}/openocd.exe",       "openocd.exe"),
+    (f"{WCH_BASE}/libusb-1.0.dll",    "libusb-1.0.dll"),
+    (f"{WCH_BASE}/libhidapi-0.dll",   "libhidapi-0.dll"),
+    (f"{WCH_CPLD}/xilinx-xc7.cfg",    "xilinx-xc7.cfg"),
+    (f"{WCH_CPLD}/jtagspi.cfg",       "jtagspi.cfg"),
+    (f"{WCH_FPGA}/xilinx-dna.cfg",    "xilinx-dna.cfg"),
 ]
 
 # Generated locally. Sourced cfg files live in the same dir (cwd at run).
@@ -91,7 +103,7 @@ def _provision_runtime():
     missing = [(u, n) for (u, n) in DOWNLOADS if not (cache / n).is_file()]
     if missing:
         print(f"First-run setup: fetching {len(missing)} file(s) from "
-              f"official sources (WCHSoftGroup/ch347 + openocd-org/openocd)...")
+              f"official sources (WCHSoftGroup/ch347)...")
         for url, name in missing:
             print(f"  {name}...", end="", flush=True)
             try:
@@ -146,8 +158,8 @@ def main():
         sys.stderr.write(
             "error: openocd.exe timed out after 30s.\n"
             "       Common causes:\n"
-            "       - CH347 driver not installed. Get it from\n"
-            "           https://www.wch-ic.com/downloads/CH347PAR_ZIP.html\n"
+            "       - CH347 driver / CH347DLL.DLL not installed. Get it from\n"
+            f"           {DRIVER_URL}\n"
             "       - JTAG cable on the wrong header.\n"
             "       - FPGA not powered.\n"
         )
@@ -155,6 +167,24 @@ def main():
 
     match = DNA_LINE_RE.search(output)
     if not match:
+        if "Not find CH347DLL" in output:
+            sys.stderr.write(
+                "error: openocd could not load CH347DLL.DLL — WCH's user-mode\n"
+                "       CH347 library. It is not bundled (proprietary). Install\n"
+                "       WCH's CH347 package (driver + DLL) from\n"
+                f"         {DRIVER_URL}\n"
+                "       or drop a 32-bit CH347DLL.DLL (matching the 32-bit\n"
+                f"       openocd.exe) into {_cache_dir()}\n"
+            )
+            return 1
+        if "CH347 open error" in output:
+            sys.stderr.write(
+                "error: CH347DLL.DLL loaded but the device could not be opened.\n"
+                f"       Install WCH's CH347 kernel driver ({DRIVER_URL}),\n"
+                "       check the dongle is plugged in and not open elsewhere,\n"
+                "       and that it's in mode 1 (JTAG).\n"
+            )
+            return 1
         sys.stderr.write(
             f"error: openocd ran (exit {rc}) but no DNA line in output.\n"
             f"       Full output below for triage:\n"

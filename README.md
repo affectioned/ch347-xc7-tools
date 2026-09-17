@@ -10,9 +10,14 @@ over a CH347 USB-JTAG dongle:
 
 Both scripts shell out to OpenOCD and share a single `.ch347_runtime/`
 cache that's auto-populated on first run from official upstream sources
-(WCH's openocd build with CH347 driver patches, mainline openocd cfgs,
-and quartiq's bscan_spi proxies). No manual install of OpenOCD,
-libusb, or proxy bitstreams.
+(WCH's openocd build with CH347 driver patches, the `.cfg` scripts that
+ship with that build, and quartiq's bscan_spi proxies). No manual
+install of OpenOCD, libusb, or proxy bitstreams.
+
+> **Note:** the `.cfg` files come from WCH's openocd build, **not** from
+> openocd-org/openocd mainline. Mainline has no `xilinx-xc7.cfg` at all,
+> and its `jtagspi.cfg` uses newer command syntax (`-tap`) that WCH's
+> older build rejects (it wants `-chain-position`).
 
 ## Why this exists
 
@@ -41,9 +46,18 @@ is one command and no manual setup.
   - The FPGA needs power. On PCIe cards that means either the card is
     seated in a powered slot, or you're feeding it through an external
     12V / 3.3V harness.
-- **WCH CH347 driver** installed:
-  <https://www.wch-ic.com/downloads/CH347PAR_ZIP.html>
-  Device Manager should show a `CH347-JTAG` interface after install.
+- **WCH CH347 driver + `CH347DLL.DLL`** installed:
+  <https://www.wch-ic.com/products/CH347.html>
+  The WCH openocd build loads `CH347DLL.DLL` (user-mode) at runtime and
+  needs the CH347 kernel driver bound to the dongle — CH347 mode 1 (vid
+  `1a86` pid `55dd`) has no in-box Windows driver. Device Manager should
+  show a `CH347-JTAG` interface after install. Neither piece is
+  auto-installable: the DLL is proprietary (not redistributed here) and a
+  kernel driver can't be a dropped file. If you'd rather not install the
+  package system-wide, you can drop a matching **32-bit** `CH347DLL.DLL`
+  into `.ch347_runtime/` (openocd finds it next to `openocd.exe`), but the
+  kernel driver still has to be installed. Both scripts print these exact
+  steps if the DLL or device is missing.
 
 ## Quick start
 
@@ -139,6 +153,8 @@ flash time.
 
 | Symptom | Likely cause |
 | --- | --- |
+| `Not find CH347DLL.DLL` | WCH's CH347 package isn't installed — see Requirements. Install it, or drop a 32-bit `CH347DLL.DLL` into `.ch347_runtime/` |
+| `CH347 open error` | DLL loaded but no device: kernel driver not bound, dongle unplugged, in use elsewhere, or not in mode 1 (JTAG) |
 | `openocd timed out after 30s` | CH347 driver missing, JTAG cable on the wrong header, or FPGA not powered |
 | `JTAG-DP STICKY ERROR` / wrong IDCODE | Bitstream targets a different chip — `flash.py` will catch this and refuse to write |
 | First-run download fails | Behind a corporate proxy / no internet; fetch the missing files manually and drop them into `.ch347_runtime/` |
@@ -154,8 +170,9 @@ to drop it for a long cable or unreliable signal integrity.
 | File | Source | License |
 | --- | --- | --- |
 | `openocd.exe`, `libusb-1.0.dll`, `libhidapi-0.dll` | [WCHSoftGroup/ch347](https://github.com/WCHSoftGroup/ch347) — WCH's openocd build with CH347 driver patches | GPL-2.0+ (OpenOCD), LGPL-2.1 (libusb / libhidapi) |
-| `xilinx-xc7.cfg`, `jtagspi.cfg`, `xilinx-dna.cfg` | [openocd-org/openocd](https://github.com/openocd-org/openocd) | GPL-2.0+ |
+| `xilinx-xc7.cfg`, `jtagspi.cfg`, `xilinx-dna.cfg` | [WCHSoftGroup/ch347](https://github.com/WCHSoftGroup/ch347) `OpenOCD_CH347/scripts` — the cfgs that ship with WCH's build (match its command syntax; mainline's don't) | GPL-2.0+ |
 | `bscan_spi_xc7a*.bit` | [quartiq/bscan_spi_bitstreams](https://github.com/quartiq/bscan_spi_bitstreams) | BSD-2-Clause |
+| `CH347DLL.DLL` + CH347 kernel driver | [wch-ic.com CH347](https://www.wch-ic.com/products/CH347.html) — **not** auto-downloaded; install once (see Requirements) | WCH proprietary |
 
 These are *cached*, not bundled — the scripts download them on first
 run from their canonical upstream URLs. This repo redistributes
