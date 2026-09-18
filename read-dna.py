@@ -16,10 +16,12 @@ On first run this downloads OpenOCD + a few cfg files from official
 upstream sources into `.ch347_runtime/` next to the script:
 
     - openocd.exe + libusb-1.0.dll + libhidapi-0.dll +
-      xilinx-xc7.cfg + jtagspi.cfg + xilinx-dna.cfg
-      from WCHSoftGroup/ch347 (WCH ships their own openocd build with
-      CH347 driver patches; the .cfg files match its command syntax —
-      openocd upstream's don't, and it has no xilinx-xc7.cfg at all)
+      xilinx-xc7.cfg + jtagspi.cfg from kilmu1337/DMA-Flash-Tools
+      (an older WCH-patched openocd build; the .cfg files match its
+      command syntax — openocd upstream's don't, and it has no
+      xilinx-xc7.cfg at all)
+    - xilinx-dna.cfg from WCHSoftGroup/ch347 (not in the DMA repo; it
+      uses only irscan/drscan/runtest, so it's build-independent)
 
 Subsequent runs use the cache. To force a fresh download, delete
 `.ch347_runtime/`.
@@ -49,25 +51,33 @@ from pathlib import Path
 CACHE_DIR_NAME = ".ch347_runtime"
 USER_AGENT = "ch347-xc7-tools/read-dna.py"
 
-WCH_REPO = "https://raw.githubusercontent.com/WCHSoftGroup/ch347/main/OpenOCD_CH347"
-WCH_BASE = f"{WCH_REPO}/bin"
-# .cfg files ship with WCH's openocd build and match its (older) command
-# syntax — `-chain-position`, `-no_jstart`, etc. Do NOT source them from
-# openocd-org/openocd master: master has no xilinx-xc7.cfg at all, and its
-# jtagspi.cfg uses newer `-tap` syntax this build rejects.
-WCH_CPLD = f"{WCH_REPO}/scripts/cpld"
-WCH_FPGA = f"{WCH_REPO}/scripts/fpga"
+# openocd.exe + its matching cfgs come from kilmu1337/DMA-Flash-Tools, pinned
+# to a commit — an older WCH-patched build (0.12.0+dev, 2023-12-29). The newer
+# WCHSoftGroup/ch347 build needs a CH347DLL.DLL export (CH347GetSerialNumber)
+# the shipping driver package doesn't provide and dies at init with a bare
+# "Jtag_init error", cable/power notwithstanding. These cfgs use this build's
+# command syntax (`pld device`, not `pld create`); openocd upstream has no
+# xilinx-xc7.cfg at all. Keep openocd.exe and the cfgs in lockstep.
+DMA_REF = "aa516df18ac77a520e63e1b4d407c1d2af7aea0a"
+DMA_BASE = (
+    "https://raw.githubusercontent.com/kilmu1337/DMA-Flash-Tools/"
+    f"{DMA_REF}/Flash%20Tools"
+)
+# xilinx-dna.cfg isn't in the DMA repo, so it still comes from WCH. It only
+# uses irscan/drscan/runtest, so it works with any openocd build.
+WCH_FPGA = ("https://raw.githubusercontent.com/WCHSoftGroup/ch347/main"
+            "/OpenOCD_CH347/scripts/fpga")
 
 # WCH's CH347 driver + CH347DLL.DLL package. The WCH openocd build loads
 # CH347DLL.DLL at runtime; it's proprietary and not redistributed here.
 DRIVER_URL = "https://www.wch-ic.com/products/CH347.html"
 
 DOWNLOADS = [
-    (f"{WCH_BASE}/openocd.exe",       "openocd.exe"),
-    (f"{WCH_BASE}/libusb-1.0.dll",    "libusb-1.0.dll"),
-    (f"{WCH_BASE}/libhidapi-0.dll",   "libhidapi-0.dll"),
-    (f"{WCH_CPLD}/xilinx-xc7.cfg",    "xilinx-xc7.cfg"),
-    (f"{WCH_CPLD}/jtagspi.cfg",       "jtagspi.cfg"),
+    (f"{DMA_BASE}/openocd.exe",       "openocd.exe"),
+    (f"{DMA_BASE}/libusb-1.0.dll",    "libusb-1.0.dll"),
+    (f"{DMA_BASE}/libhidapi-0.dll",   "libhidapi-0.dll"),
+    (f"{DMA_BASE}/xilinx-xc7.cfg",    "xilinx-xc7.cfg"),
+    (f"{DMA_BASE}/jtagspi.cfg",       "jtagspi.cfg"),
     (f"{WCH_FPGA}/xilinx-dna.cfg",    "xilinx-dna.cfg"),
 ]
 
@@ -103,7 +113,7 @@ def _provision_runtime():
     missing = [(u, n) for (u, n) in DOWNLOADS if not (cache / n).is_file()]
     if missing:
         print(f"First-run setup: fetching {len(missing)} file(s) from "
-              f"official sources (WCHSoftGroup/ch347)...")
+              f"official sources (DMA-Flash-Tools + WCHSoftGroup/ch347)...")
         for url, name in missing:
             print(f"  {name}...", end="", flush=True)
             try:

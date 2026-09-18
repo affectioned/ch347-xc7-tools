@@ -10,14 +10,21 @@ over a CH347 USB-JTAG dongle:
 
 Both scripts shell out to OpenOCD and share a single `.ch347_runtime/`
 cache that's auto-populated on first run from official upstream sources
-(WCH's openocd build with CH347 driver patches, the `.cfg` scripts that
-ship with that build, and quartiq's bscan_spi proxies). No manual
-install of OpenOCD, libusb, or proxy bitstreams.
+(a WCH-patched openocd build vendored via kilmu1337/DMA-Flash-Tools, the
+`.cfg` scripts that match that build, and quartiq's bscan_spi proxies).
+No manual install of OpenOCD, libusb, or proxy bitstreams.
 
-> **Note:** the `.cfg` files come from WCH's openocd build, **not** from
-> openocd-org/openocd mainline. Mainline has no `xilinx-xc7.cfg` at all,
-> and its `jtagspi.cfg` uses newer command syntax (`-tap`) that WCH's
-> older build rejects (it wants `-chain-position`).
+> **Note:** the `.cfg` files come from the same WCH-patched openocd
+> build, **not** from openocd-org/openocd mainline. Mainline has no
+> `xilinx-xc7.cfg` at all, and its `jtagspi.cfg` uses newer command
+> syntax that this build rejects.
+>
+> **Why an older build?** The newest `WCHSoftGroup/ch347` openocd calls a
+> `CH347DLL.DLL` export (`CH347GetSerialNumber`) that the shipping WCH
+> driver package doesn't provide, so it dies at init with a bare
+> `Jtag_init error` **even when the cable, power, and FPGA are all fine**.
+> We pin the older build (0.12.0+dev, 2023-12-29) that only uses exports
+> present in the common CH341PAR / CH347 driver package.
 
 ## Why this exists
 
@@ -155,6 +162,7 @@ flash time.
 | --- | --- |
 | `Not find CH347DLL.DLL` | WCH's CH347 package isn't installed — see Requirements. Install it, or drop a 32-bit `CH347DLL.DLL` into `.ch347_runtime/` |
 | `CH347 open error` | DLL loaded but no device: kernel driver not bound, dongle unplugged, in use elsewhere, or not in mode 1 (JTAG) |
+| `Jtag_init error` (openocd exits at once) | A newer openocd is in `.ch347_runtime/` that wants a `CH347DLL.DLL` export your driver lacks (`CH347GetSerialNumber`). **Not** a hardware fault. Delete `.ch347_runtime/` to restore the pinned build, or update WCH's driver package |
 | `openocd timed out after 30s` | CH347 driver missing, JTAG cable on the wrong header, or FPGA not powered |
 | `JTAG-DP STICKY ERROR` / wrong IDCODE | Bitstream targets a different chip — `flash.py` will catch this and refuse to write |
 | First-run download fails | Behind a corporate proxy / no internet; fetch the missing files manually and drop them into `.ch347_runtime/` |
@@ -169,8 +177,9 @@ to drop it for a long cable or unreliable signal integrity.
 
 | File | Source | License |
 | --- | --- | --- |
-| `openocd.exe`, `libusb-1.0.dll`, `libhidapi-0.dll` | [WCHSoftGroup/ch347](https://github.com/WCHSoftGroup/ch347) — WCH's openocd build with CH347 driver patches | GPL-2.0+ (OpenOCD), LGPL-2.1 (libusb / libhidapi) |
-| `xilinx-xc7.cfg`, `jtagspi.cfg`, `xilinx-dna.cfg` | [WCHSoftGroup/ch347](https://github.com/WCHSoftGroup/ch347) `OpenOCD_CH347/scripts` — the cfgs that ship with WCH's build (match its command syntax; mainline's don't) | GPL-2.0+ |
+| `openocd.exe`, `libusb-1.0.dll`, `libhidapi-0.dll` | [kilmu1337/DMA-Flash-Tools](https://github.com/kilmu1337/DMA-Flash-Tools) `Flash Tools/` — an older WCH-patched openocd build (see *Why an older build?* above) | GPL-2.0+ (OpenOCD), LGPL-2.1 (libusb / libhidapi) |
+| `xilinx-xc7.cfg`, `jtagspi.cfg` | [kilmu1337/DMA-Flash-Tools](https://github.com/kilmu1337/DMA-Flash-Tools) `Flash Tools/` — cfgs matching that build's command syntax (mainline's don't) | GPL-2.0+ |
+| `xilinx-dna.cfg` | [WCHSoftGroup/ch347](https://github.com/WCHSoftGroup/ch347) `OpenOCD_CH347/scripts/fpga` — not in the DMA repo; build-independent (irscan/drscan only) | GPL-2.0+ |
 | `bscan_spi_xc7a*.bit` | [quartiq/bscan_spi_bitstreams](https://github.com/quartiq/bscan_spi_bitstreams) | BSD-2-Clause |
 | `CH347DLL.DLL` + CH347 kernel driver | [wch-ic.com CH347](https://www.wch-ic.com/products/CH347.html) — **not** auto-downloaded; install once (see Requirements) | WCH proprietary |
 

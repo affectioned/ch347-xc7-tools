@@ -11,8 +11,8 @@ newest match, confirms once, and flashes it through a bscan_spi proxy.
 Vendored binaries are auto-downloaded on first run from official
 upstream sources into `.ch347_runtime/` next to the script:
     - openocd.exe + DLLs + xilinx-xc7.cfg + jtagspi.cfg from
-      WCHSoftGroup/ch347 (WCH-patched build; the .cfg files match its
-      command syntax — openocd upstream's don't)
+      kilmu1337/DMA-Flash-Tools (a WCH-patched openocd build; the .cfg
+      files match its command syntax — openocd upstream's don't)
     - bscan_spi_xc7a<part>.bit from quartiq/bscan_spi_bitstreams
 
 Subsequent runs use the cache. Delete `.ch347_runtime/` to force fresh
@@ -21,11 +21,19 @@ downloads.
 One-time prerequisite (not auto-installable): the WCH openocd build loads
 WCH's proprietary CH347DLL.DLL at runtime and needs WCH's CH347 kernel
 driver bound to the dongle (CH347 mode 1 / vid 1a86 pid 55dd has no in-box
-Windows driver). Install both from WCH's CH347 package:
+Windows driver). The common CH341PAR / CH347 driver package covers both:
     https://www.wch-ic.com/products/CH347.html
 Alternatively, drop a matching 32-bit CH347DLL.DLL into `.ch347_runtime/`
 (openocd finds it next to openocd.exe), but the kernel driver still has to
 be installed. flash.py prints these steps if the DLL or device is missing.
+
+Why the pinned (older) openocd: the newer WCHSoftGroup/ch347 build
+GetProcAddress()es an extra DLL export, CH347GetSerialNumber, that the
+shipping CH347DLL.DLL doesn't provide — so it dies at init with a bare
+"Jtag_init error" even when the cable, power, and FPGA are all fine
+(the misleading part: nothing is wrong with the hardware). The pinned
+DMA-Flash-Tools build (0.12.0+dev, 2023-12-29) only uses exports present
+in the common driver package.
 
 Usage:
     python flash.py                              # search dir next to script
@@ -45,13 +53,20 @@ from pathlib import Path
 CACHE_DIR_NAME = ".ch347_runtime"
 USER_AGENT = "ch347-xc7-tools/flash.py"
 
-WCH_REPO = "https://raw.githubusercontent.com/WCHSoftGroup/ch347/main/OpenOCD_CH347"
-WCH_BASE = f"{WCH_REPO}/bin"
-# The .cfg files ship with WCH's openocd build and match its (older) command
-# syntax — `-chain-position`, `-no_jstart`, etc. Do NOT source them from
-# openocd-org/openocd master: master has no xilinx-xc7.cfg at all, and its
-# jtagspi.cfg uses newer `-tap` syntax this build rejects.
-WCH_CPLD = f"{WCH_REPO}/scripts/cpld"
+# openocd.exe + its matching .cfg scripts come from kilmu1337/DMA-Flash-Tools,
+# pinned to a commit. This is an older WCH-patched openocd build (0.12.0+dev,
+# 2023-12-29) whose ch347 driver only needs the CH347DLL.DLL exports present
+# in the common CH341PAR / CH347 driver package. The newer WCHSoftGroup/ch347
+# build additionally GetProcAddress()es CH347GetSerialNumber, which the
+# shipping DLL doesn't export — it fails at init with a bare "Jtag_init error"
+# regardless of cable/power. Keep openocd.exe and the .cfg files in lockstep:
+# these cfgs use this build's command syntax (`pld device`, not `pld create`),
+# and openocd upstream has no xilinx-xc7.cfg at all.
+DMA_REF = "aa516df18ac77a520e63e1b4d407c1d2af7aea0a"
+DMA_BASE = (
+    "https://raw.githubusercontent.com/kilmu1337/DMA-Flash-Tools/"
+    f"{DMA_REF}/Flash%20Tools"
+)
 BSCAN_BASE = "https://raw.githubusercontent.com/quartiq/bscan_spi_bitstreams/master"
 
 # WCH's CH347 driver + CH347DLL.DLL package. The WCH openocd build loads
@@ -60,11 +75,11 @@ BSCAN_BASE = "https://raw.githubusercontent.com/quartiq/bscan_spi_bitstreams/mas
 DRIVER_URL = "https://www.wch-ic.com/products/CH347.html"
 
 CORE_DOWNLOADS = [
-    (f"{WCH_BASE}/openocd.exe",        "openocd.exe"),
-    (f"{WCH_BASE}/libusb-1.0.dll",     "libusb-1.0.dll"),
-    (f"{WCH_BASE}/libhidapi-0.dll",    "libhidapi-0.dll"),
-    (f"{WCH_CPLD}/xilinx-xc7.cfg",     "xilinx-xc7.cfg"),
-    (f"{WCH_CPLD}/jtagspi.cfg",        "jtagspi.cfg"),
+    (f"{DMA_BASE}/openocd.exe",       "openocd.exe"),
+    (f"{DMA_BASE}/libusb-1.0.dll",    "libusb-1.0.dll"),
+    (f"{DMA_BASE}/libhidapi-0.dll",   "libhidapi-0.dll"),
+    (f"{DMA_BASE}/xilinx-xc7.cfg",    "xilinx-xc7.cfg"),
+    (f"{DMA_BASE}/jtagspi.cfg",       "jtagspi.cfg"),
 ]
 
 # IDCODE & 0x0FFFFFFF clears the 4-bit silicon revision in the top
@@ -198,6 +213,17 @@ def _diagnose_probe_failure(output):
             f"  * WCH's CH347 kernel driver is installed ({DRIVER_URL})\n"
             "  * the dongle is plugged in and not open in another program\n"
             "  * the CH347 is in mode 1 (JTAG) — not mode 0/2/3"
+        )
+    elif "Jtag_init error" in output:
+        detail = (
+            "openocd found CH347DLL.DLL but bailed during JTAG init. This is\n"
+            "NOT a cable/power/wiring fault. It almost always means an openocd\n"
+            "build newer than the pinned one is in `.ch347_runtime/` and wants\n"
+            "a CH347DLL.DLL export the installed driver lacks\n"
+            "(CH347GetSerialNumber). Fix it by restoring the pinned build:\n"
+            "  * delete `.ch347_runtime/` and re-run (re-downloads the pinned\n"
+            "    DMA-Flash-Tools openocd), or\n"
+            f"  * update WCH's CH347 driver package ({DRIVER_URL})"
         )
     else:
         detail = (
